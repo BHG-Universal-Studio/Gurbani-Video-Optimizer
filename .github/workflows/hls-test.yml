@@ -19,12 +19,12 @@ jobs:
       - name: Verify FFmpeg
         run: ffmpeg -version
 
-      - name: Convert MP4 → HLS (Compressed, 1080p max)
+      - name: Convert MP4 → HLS (Compressed, 1080p max, SAFE)
         run: |
           mkdir -p output_hls
 
           ffmpeg -y -i test.mp4 \
-            -vf "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease" \
+            -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)'" \
             -c:v libx264 \
             -profile:v baseline \
             -level 3.0 \
@@ -51,4 +51,4 @@ jobs:
         with:
           name: hls-output
           path: output_hls/
-          retention-days: 7
+          retention-days: 1
