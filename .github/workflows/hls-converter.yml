@@ -94,7 +94,15 @@ jobs:
               "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/hls/upload?key=hls/${BASE_KEY}/${NAME}"
           done
 
-      # 🔥 UPDATE FIRESTORE (pending_posts OR posts)
+
+
+      - name: Install firebase-admin
+        run: |
+          npm init -y
+          npm install firebase-admin
+
+          
+   
       - name: Update Firestore with HLS URL
         env:
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
