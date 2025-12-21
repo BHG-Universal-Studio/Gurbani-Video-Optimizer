@@ -20,7 +20,7 @@ jobs:
       - name: Verify FFmpeg
         run: ffmpeg -version
 
-      # 🔽 Download video from Cloudflare (any format)
+      # 🔽 Download source video from Cloudflare Worker
       - name: Download source video
         run: |
           echo "Downloading video from:"
@@ -31,8 +31,8 @@ jobs:
           echo "Downloaded file:"
           ls -lh input_video
 
-      # 🎥 Convert → HLS (Compressed, 1080p max, SAFE)
-      - name: Convert to HLS (1080p max, orientation-safe)
+      # 🎥 Convert → HLS (Compressed, 1080p max, orientation-safe)
+      - name: Convert to HLS (1080p max)
         run: |
           mkdir -p output_hls
 
@@ -58,10 +58,25 @@ jobs:
       - name: List HLS output
         run: ls -lh output_hls
 
-      # 📦 Make output downloadable (for testing)
-      - name: Upload HLS output artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: hls-output
-          path: output_hls/
-          retention-days: 1
+      # ☁️ Upload HLS files to Cloudflare R2 via Worker
+      - name: Upload HLS to Cloudflare via Worker
+        env:
+          HLS_SECRET: ${{ secrets.HLS_UPLOAD_SECRET }}
+        run: |
+          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" \
+            | sed 's|/|_|g' \
+            | sed 's|\.[^.]*$||')
+
+          echo "Uploading to R2 folder: hls/${BASE_KEY}/"
+
+          for file in output_hls/*; do
+            NAME=$(basename "$file")
+
+            echo "Uploading $NAME"
+
+            curl -X POST \
+              -H "X-HLS-Secret: $HLS_SECRET" \
+              -H "Content-Type: $(file --mime-type -b "$file")" \
+              --data-binary @"$file" \
+              "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/hls/upload?key=hls/${BASE_KEY}/${NAME}"
+          done
