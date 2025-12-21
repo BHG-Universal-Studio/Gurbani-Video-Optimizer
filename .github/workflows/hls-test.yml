@@ -1,7 +1,7 @@
 name: HLS Test Conversion
 
 on:
-  workflow_dispatch:   # manual trigger
+  workflow_dispatch:
 
 jobs:
   convert:
@@ -19,16 +19,28 @@ jobs:
       - name: Verify FFmpeg
         run: ffmpeg -version
 
-      - name: Convert MP4 to HLS
+      - name: Convert MP4 → HLS (Compressed, 1080p max)
         run: |
           mkdir -p output_hls
-          ffmpeg -i test.mp4 \
+
+          ffmpeg -y -i test.mp4 \
+            -vf "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease" \
+            -c:v libx264 \
             -profile:v baseline \
             -level 3.0 \
-            -start_number 0 \
+            -pix_fmt yuv420p \
+            -preset veryfast \
+            -crf 23 \
+            -g 48 \
+            -keyint_min 48 \
+            -sc_threshold 0 \
+            -c:a aac \
+            -b:a 128k \
+            -ar 48000 \
             -hls_time 6 \
+            -hls_playlist_type vod \
             -hls_list_size 0 \
-            -f hls \
+            -hls_segment_filename "output_hls/index%03d.ts" \
             output_hls/index.m3u8
 
       - name: List output files
