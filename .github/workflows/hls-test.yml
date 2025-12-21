@@ -45,3 +45,10 @@ jobs:
 
       - name: List output files
         run: ls -lh output_hls
+
+      - name: Upload HLS output (downloadable)
+        uses: actions/upload-artifact@v4
+        with:
+          name: hls-output
+          path: output_hls/
+          retention-days: 7
