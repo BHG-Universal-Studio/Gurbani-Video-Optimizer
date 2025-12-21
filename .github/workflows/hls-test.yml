@@ -1,4 +1,4 @@
-name: HLS Test Conversion
+name: HLS Conversion Gurbani Kirtan Darbar
 
 on:
   repository_dispatch:
