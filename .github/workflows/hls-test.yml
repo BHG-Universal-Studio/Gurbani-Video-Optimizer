@@ -9,9 +9,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 🧾 Checkout repo
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      # 🛠 Install FFmpeg
       - name: Install FFmpeg
         run: |
           sudo apt update
@@ -20,7 +22,7 @@ jobs:
       - name: Verify FFmpeg
         run: ffmpeg -version
 
-      # 🔽 Download source video from Cloudflare Worker
+      # ⬇️ Download source video from Cloudflare Worker
       - name: Download source video
         run: |
           echo "Downloading video from:"
@@ -55,6 +57,24 @@ jobs:
             -hls_segment_filename "output_hls/index%03d.ts" \
             output_hls/index.m3u8
 
+      # 🔗 Rewrite HLS playlist to ABSOLUTE URLs (🔥 REQUIRED STEP)
+      - name: Rewrite HLS playlist to absolute URLs
+        run: |
+          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" \
+            | sed 's|/|_|g' \
+            | sed 's|\.[^.]*$||')
+
+          BASE_URL="https://gurbani-kirtan-darbar.iemgurpreets.workers.dev?filename=hls/${BASE_KEY}"
+
+          echo "Rewriting playlist with base URL:"
+          echo "$BASE_URL"
+
+          sed -i "s|index|$BASE_URL/index|g" output_hls/index.m3u8
+
+          echo "Final playlist:"
+          cat output_hls/index.m3u8
+
+      # 📂 Debug output (optional but useful)
       - name: List HLS output
         run: ls -lh output_hls
 
