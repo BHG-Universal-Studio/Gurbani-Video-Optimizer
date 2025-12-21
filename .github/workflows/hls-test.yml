@@ -1,7 +1,8 @@
 name: HLS Test Conversion
 
 on:
-  workflow_dispatch:
+  repository_dispatch:
+    types: [convert_hls]
 
 jobs:
   convert:
@@ -19,16 +20,27 @@ jobs:
       - name: Verify FFmpeg
         run: ffmpeg -version
 
-      - name: Convert MP4 → HLS (Compressed, 1080p max, SAFE)
+      # 🔽 Download video from Cloudflare (any format)
+      - name: Download source video
+        run: |
+          echo "Downloading video from:"
+          echo "${{ github.event.client_payload.video_url }}"
+
+          curl -L "${{ github.event.client_payload.video_url }}" -o input_video
+
+          echo "Downloaded file:"
+          ls -lh input_video
+
+      # 🎥 Convert → HLS (Compressed, 1080p max, SAFE)
+      - name: Convert to HLS (1080p max, orientation-safe)
         run: |
           mkdir -p output_hls
 
-          ffmpeg -y -i test.mp4 \
-            -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)'" \
+          ffmpeg -y -i input_video \
+            -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)':flags=lanczos,format=yuv420p" \
             -c:v libx264 \
             -profile:v baseline \
             -level 3.0 \
-            -pix_fmt yuv420p \
             -preset veryfast \
             -crf 23 \
             -g 48 \
@@ -43,10 +55,11 @@ jobs:
             -hls_segment_filename "output_hls/index%03d.ts" \
             output_hls/index.m3u8
 
-      - name: List output files
+      - name: List HLS output
         run: ls -lh output_hls
 
-      - name: Upload HLS output (downloadable)
+      # 📦 Make output downloadable (for testing)
+      - name: Upload HLS output artifact
         uses: actions/upload-artifact@v4
         with:
           name: hls-output
