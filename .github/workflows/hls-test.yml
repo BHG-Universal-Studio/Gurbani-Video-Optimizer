@@ -1,0 +1,35 @@
+name: HLS Test Conversion
+
+on:
+  workflow_dispatch:   # manual trigger
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg
+
+      - name: Verify FFmpeg
+        run: ffmpeg -version
+
+      - name: Convert MP4 to HLS
+        run: |
+          mkdir -p output_hls
+          ffmpeg -i test.mp4 \
+            -profile:v baseline \
+            -level 3.0 \
+            -start_number 0 \
+            -hls_time 6 \
+            -hls_list_size 0 \
+            -f hls \
+            output_hls/index.m3u8
+
+      - name: List output files
+        run: ls -lh output_hls
