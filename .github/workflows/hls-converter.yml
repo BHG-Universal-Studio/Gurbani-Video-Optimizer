@@ -34,43 +34,66 @@ jobs:
           set -e
           mkdir -p output_hls/videohigh output_hls/videolow
 
-          echo "🔹 Compress candidate"
+          echo "🔹 Step 1: Compress candidate (FIXED)"
           ffmpeg -y -i input_video \
-            -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)':format=yuv420p,fps=30" \
-            -c:v libx264 -preset veryfast -crf 23 \
-            -c:a aac -b:a 128k \
+            -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)',fps=30,format=yuv420p" \
+            -c:v libx264 \
+            -preset veryfast \
+            -crf 23 \
+            -c:a aac \
+            -b:a 128k \
             compressed.mp4
 
+          echo "🔹 Step 2: Compare sizes"
           ORIGINAL_SIZE=$(stat -c%s input_video)
           COMPRESSED_SIZE=$(stat -c%s compressed.mp4)
 
+          echo "Original size:   $ORIGINAL_SIZE bytes"
+          echo "Compressed size: $COMPRESSED_SIZE bytes"
+
           if [ "$COMPRESSED_SIZE" -lt "$ORIGINAL_SIZE" ]; then
+            echo "✅ Using compressed.mp4"
             HLS_INPUT="compressed.mp4"
           else
+            echo "✅ Using original input_video"
             HLS_INPUT="input_video"
           fi
 
-          echo "🔹 High quality (up to 1080p)"
+          echo "🔹 Step 3a: High quality HLS (1080p max) — FIXED"
           ffmpeg -y -i "$HLS_INPUT" \
-            -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)':format=yuv420p,fps=30" \
-            -c:v libx264 -preset veryfast -crf 23 \
-            -g 180 -keyint_min 180 -sc_threshold 0 \
-            -c:a aac -b:a 128k \
-            -hls_time 6 -hls_playlist_type vod -hls_list_size 0 \
+            -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)',fps=30,format=yuv420p" \
+            -c:v libx264 \
+            -preset veryfast \
+            -crf 23 \
+            -g 180 \
+            -keyint_min 180 \
+            -sc_threshold 0 \
+            -c:a aac \
+            -b:a 128k \
+            -hls_time 6 \
+            -hls_playlist_type vod \
+            -hls_list_size 0 \
             -hls_segment_filename "output_hls/videohigh/index%03d.ts" \
             output_hls/videohigh/index.m3u8
 
-          echo "🔹 Low quality (480p)"
+          echo "🔹 Step 3b: Low quality HLS (480p) — FIXED"
           ffmpeg -y -i "$HLS_INPUT" \
-            -vf "scale='if(gt(iw,ih),854,-2)':'if(gt(ih,iw),480,-2)':format=yuv420p,fps=30" \
-            -c:v libx264 -preset veryfast -crf 28 \
-            -g 180 -keyint_min 180 -sc_threshold 0 \
-            -c:a aac -b:a 96k \
-            -hls_time 6 -hls_playlist_type vod -hls_list_size 0 \
+            -vf "scale='if(gt(iw,ih),854,-2)':'if(gt(ih,iw),480,-2)',fps=30,format=yuv420p" \
+            -c:v libx264 \
+            -preset veryfast \
+            -crf 28 \
+            -g 180 \
+            -keyint_min 180 \
+            -sc_threshold 0 \
+            -c:a aac \
+            -b:a 96k \
+            -hls_time 6 \
+            -hls_playlist_type vod \
+            -hls_list_size 0 \
             -hls_segment_filename "output_hls/videolow/index%03d.ts" \
             output_hls/videolow/index.m3u8
 
-          echo "🔹 Create master playlist"
+          echo "🔹 Step 4: Create master playlist"
           cat > output_hls/index.m3u8 <<EOF
           #EXTM3U
           #EXT-X-VERSION:3
@@ -82,21 +105,26 @@ jobs:
           videolow/index.m3u8
           EOF
 
-      # 🔗 Rewrite playlist URLs
+      # 🔗 Rewrite playlists to absolute URLs
       - name: Rewrite playlists to absolute URLs
         run: |
-          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" | sed 's|/|_|g' | sed 's|\.[^.]*$||')
+          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" \
+            | sed 's|/|_|g' \
+            | sed 's|\.[^.]*$||')
+
           BASE_URL="https://gurbani-kirtan-darbar.iemgurpreets.workers.dev?filename=hls/${BASE_KEY}"
 
           find output_hls -name "*.m3u8" -exec \
             sed -i "s|videohigh|$BASE_URL/videohigh|g; s|videolow|$BASE_URL/videolow|g" {} +
 
-      # ☁️ Upload to R2
+      # ☁️ Upload HLS to Cloudflare R2 via Worker
       - name: Upload HLS to Cloudflare Worker
         env:
           HLS_SECRET: ${{ secrets.HLS_UPLOAD_SECRET }}
         run: |
-          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" | sed 's|/|_|g' | sed 's|\.[^.]*$||')
+          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" \
+            | sed 's|/|_|g' \
+            | sed 's|\.[^.]*$||')
 
           find output_hls -type f | while read file; do
             REL=${file#output_hls/}
@@ -134,9 +162,17 @@ jobs:
             baseKey + "/index.m3u8";
 
           for (const col of ["pending_posts", "posts"]) {
-            const snap = await db.collection(col).where("publicId", "==", publicId).limit(1).get();
+            const snap = await db
+              .collection(col)
+              .where("publicId", "==", publicId)
+              .limit(1)
+              .get();
+
             if (!snap.empty) {
-              await snap.docs[0].ref.update({ hlsUrl, publicHlsId: "hls/" + baseKey });
+              await snap.docs[0].ref.update({
+                hlsUrl,
+                publicHlsId: "hls/" + baseKey,
+              });
               break;
             }
           }
