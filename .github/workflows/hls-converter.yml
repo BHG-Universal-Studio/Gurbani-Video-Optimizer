@@ -114,6 +114,29 @@ jobs:
           find output_hls -name "*.m3u8" -exec \
             sed -i "s|videohigh|$BASE_URL/videohigh|g; s|videolow|$BASE_URL/videolow|g" {} +
 
+            # 🔥 Rewrite TS segment URLs to absolute (REQUIRED FOR PLAYBACK)
+      - name: Rewrite TS segments to absolute URLs
+        run: |
+          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" \
+            | sed 's|/|_|g' \
+            | sed 's|\.[^.]*$||')
+
+          BASE_URL="https://gurbani-kirtan-darbar.iemgurpreets.workers.dev?filename=hls/${BASE_KEY}"
+
+          echo "🔧 Fixing videohigh TS paths"
+          sed -i "s|index|$BASE_URL/videohigh/index|g" output_hls/videohigh/index.m3u8
+
+          echo "🔧 Fixing videolow TS paths"
+          sed -i "s|index|$BASE_URL/videolow/index|g" output_hls/videolow/index.m3u8
+
+          echo "✅ videohigh playlist:"
+          cat output_hls/videohigh/index.m3u8
+
+          echo "✅ videolow playlist:"
+          cat output_hls/videolow/index.m3u8
+
+
+
       # ☁️ Upload HLS to Cloudflare R2 via Worker
       - name: Upload HLS to Cloudflare Worker
         env:
