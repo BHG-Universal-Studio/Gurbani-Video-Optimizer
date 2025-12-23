@@ -22,34 +22,43 @@ jobs:
       - name: Verify FFmpeg
         run: ffmpeg -version
 
-      # ⬇️ Download source video
+      # ⬇️ Download source video from Cloudflare Worker
       - name: Download source video
         run: |
+          echo "Downloading video from:"
+          echo "${{ github.event.client_payload.video_url }}"
+
           curl -L "${{ github.event.client_payload.video_url }}" -o input_video
+
+          echo "Downloaded file:"
           ls -lh input_video
 
-      # 🎥 Smart compress → compare → multi-bitrate HLS
-      - name: Convert to Multi-Bitrate HLS
+      # 🎥 STEP 1 + 2 + 3: Smart compress → compare → HLS
+      - name: Convert to HLS (Feed Optimized – FINAL)
         run: |
           set -e
-          mkdir -p output_hls/videohigh output_hls/videolow
+          mkdir -p output_hls
 
-          echo "🔹 Step 1: Compress candidate"
+          echo "🔹 Step 1: Create compression candidate"
           ffmpeg -y -i input_video \
-            -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)',fps=30,format=yuv420p" \
+            -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)':flags=lanczos,format=yuv420p,fps=30" \
+            -r 30 \
             -c:v libx264 \
+            -profile:v baseline \
+            -level 3.0 \
             -preset veryfast \
             -crf 23 \
             -c:a aac \
             -b:a 128k \
+            -ar 48000 \
             compressed.mp4
 
           echo "🔹 Step 2: Compare sizes"
           ORIGINAL_SIZE=$(stat -c%s input_video)
           COMPRESSED_SIZE=$(stat -c%s compressed.mp4)
 
-          echo "Original:   $ORIGINAL_SIZE bytes"
-          echo "Compressed: $COMPRESSED_SIZE bytes"
+          echo "Original size:   $ORIGINAL_SIZE bytes"
+          echo "Compressed size: $COMPRESSED_SIZE bytes"
 
           if [ "$COMPRESSED_SIZE" -lt "$ORIGINAL_SIZE" ]; then
             echo "✅ Using compressed.mp4"
@@ -59,10 +68,13 @@ jobs:
             HLS_INPUT="input_video"
           fi
 
-          echo "🔹 Step 3a: High quality HLS (1080p max)"
+          echo "🔹 Step 3: Generate HLS from selected input"
           ffmpeg -y -i "$HLS_INPUT" \
-            -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)',fps=30,format=yuv420p" \
+            -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)':flags=lanczos,format=yuv420p,fps=30" \
+            -r 30 \
             -c:v libx264 \
+            -profile:v baseline \
+            -level 3.0 \
             -preset veryfast \
             -crf 23 \
             -g 180 \
@@ -70,52 +82,15 @@ jobs:
             -sc_threshold 0 \
             -c:a aac \
             -b:a 128k \
+            -ar 48000 \
             -hls_time 6 \
             -hls_playlist_type vod \
             -hls_list_size 0 \
-            -hls_segment_filename "output_hls/videohigh/index%03d.ts" \
-            output_hls/videohigh/index.m3u8
+            -hls_segment_filename "output_hls/index%03d.ts" \
+            output_hls/index.m3u8
 
-          echo "🔹 Step 3b: Low quality HLS (480p)"
-          ffmpeg -y -i "$HLS_INPUT" \
-            -vf "scale='if(gt(iw,ih),854,-2)':'if(gt(ih,iw),480,-2)',fps=30,format=yuv420p" \
-            -c:v libx264 \
-            -preset veryfast \
-            -crf 28 \
-            -g 180 \
-            -keyint_min 180 \
-            -sc_threshold 0 \
-            -c:a aac \
-            -b:a 96k \
-            -hls_time 6 \
-            -hls_playlist_type vod \
-            -hls_list_size 0 \
-            -hls_segment_filename "output_hls/videolow/index%03d.ts" \
-            output_hls/videolow/index.m3u8
-
-          echo "🔹 Step 4: Create master playlist"
-          cat > output_hls/index.m3u8 <<EOF
-          #EXTM3U
-          #EXT-X-VERSION:3
-
-          #EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1920x1080
-          videohigh/index.m3u8
-
-          #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=854x480
-          videolow/index.m3u8
-          EOF
-
-      # 🔗 Rewrite playlists to absolute URLs
-      - name: Rewrite playlists to absolute URLs
-        run: |
-          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" | sed 's|/|_|g' | sed 's|\.[^.]*$||')
-          BASE_URL="https://gurbani-kirtan-darbar.iemgurpreets.workers.dev?filename=hls/${BASE_KEY}"
-
-          find output_hls -name "*.m3u8" -exec \
-            sed -i "s|videohigh|$BASE_URL/videohigh|g; s|videolow|$BASE_URL/videolow|g" {} +
-
-            # 🔥 Rewrite TS segment URLs to absolute (REQUIRED FOR PLAYBACK)
-      - name: Rewrite TS segments to absolute URLs
+      # 🔗 Rewrite HLS playlist to ABSOLUTE URLs
+      - name: Rewrite HLS playlist to absolute URLs
         run: |
           BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" \
             | sed 's|/|_|g' \
@@ -123,49 +98,48 @@ jobs:
 
           BASE_URL="https://gurbani-kirtan-darbar.iemgurpreets.workers.dev?filename=hls/${BASE_KEY}"
 
-          echo "🔧 Fixing videohigh TS paths"
-          sed -i "s|index|$BASE_URL/videohigh/index|g" output_hls/videohigh/index.m3u8
+          sed -i "s|index|$BASE_URL/index|g" output_hls/index.m3u8
 
-          echo "🔧 Fixing videolow TS paths"
-          sed -i "s|index|$BASE_URL/videolow/index|g" output_hls/videolow/index.m3u8
+          echo "Final playlist:"
+          cat output_hls/index.m3u8
 
-          echo "✅ videohigh playlist:"
-          cat output_hls/videohigh/index.m3u8
+      # 📂 Debug
+      - name: List HLS output
+        run: ls -lh output_hls
 
-          echo "✅ videolow playlist:"
-          cat output_hls/videolow/index.m3u8
-
-
-
-      # ☁️ Upload HLS to Cloudflare R2 via Worker
-      - name: Upload HLS to Cloudflare Worker
+      # ☁️ Upload HLS files to Cloudflare R2 via Worker
+      - name: Upload HLS to Cloudflare via Worker
         env:
           HLS_SECRET: ${{ secrets.HLS_UPLOAD_SECRET }}
         run: |
-          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" | sed 's|/|_|g' | sed 's|\.[^.]*$||')
+          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" \
+            | sed 's|/|_|g' \
+            | sed 's|\.[^.]*$||')
 
-          find output_hls -type f | while read file; do
-            REL=${file#output_hls/}
+          for file in output_hls/*; do
+            NAME=$(basename "$file")
+
             curl -X POST \
               -H "X-HLS-Secret: $HLS_SECRET" \
               -H "Content-Type: $(file --mime-type -b "$file")" \
               --data-binary @"$file" \
-              "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/hls/upload?key=hls/${BASE_KEY}/${REL}"
+              "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/hls/upload?key=hls/${BASE_KEY}/${NAME}"
           done
 
+      # 🔥 Firestore update
       - name: Install firebase-admin
         run: |
           npm init -y
           npm install firebase-admin
 
-      - name: Update Firestore
+      - name: Update Firestore with HLS URL
         env:
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
           FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
         run: |
-          node --input-type=module <<'EOF'
-          import admin from "firebase-admin";
+          node <<'EOF'
+          const admin = require("firebase-admin");
 
           admin.initializeApp({
             credential: admin.credential.cert({
@@ -179,42 +153,29 @@ jobs:
 
           const publicId = "${{ github.event.client_payload.original_key }}";
           const baseKey = publicId.replace(/\//g, "_").replace(/\.[^.]+$/, "");
-
           const hlsUrl =
             "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev" +
             "?filename=hls/" + baseKey + "/index.m3u8";
 
-          for (const col of ["pending_posts", "posts"]) {
-            const snap = await db
-              .collection(col)
-              .where("publicId", "==", publicId)
-              .limit(1)
-              .get();
+          async function updateFirestore() {
+            for (const col of ["pending_posts", "posts"]) {
+              const snap = await db
+                .collection(col)
+                .where("publicId", "==", publicId)
+                .limit(1)
+                .get();
 
-            if (!snap.empty) {
-              await snap.docs[0].ref.update({
-                hlsUrl,
-                publicHlsId: "hls/" + baseKey,
-              });
-              console.log(`✅ Firestore updated in ${col}`);
-              break;
+              if (!snap.empty) {
+                await snap.docs[0].ref.update({
+                  hlsUrl,
+                  publicHlsId: "hls/" + baseKey,
+                });
+                console.log(`Firestore updated in ${col}`);
+                return;
+              }
             }
+            console.log("No matching document found");
           }
+
+          updateFirestore();
           EOF
-
-
-      - name: Debug HLS sizes
-        run: |
-          echo "📦 HLS Size Summary"
-
-          HIGH_SIZE_BYTES=$(du -cb output_hls/videohigh/* | tail -1 | cut -f1)
-          LOW_SIZE_BYTES=$(du -cb output_hls/videolow/* | tail -1 | cut -f1)
-
-          HIGH_SIZE_MB=$(awk "BEGIN {printf \"%.2f\", $HIGH_SIZE_BYTES/1024/1024}")
-          LOW_SIZE_MB=$(awk "BEGIN {printf \"%.2f\", $LOW_SIZE_BYTES/1024/1024}")
-          TOTAL_MB=$(awk "BEGIN {printf \"%.2f\", ($HIGH_SIZE_BYTES+$LOW_SIZE_BYTES)/1024/1024}")
-
-          echo "🔹 High Quality HLS  : $HIGH_SIZE_MB MB"
-          echo "🔹 Low Quality HLS   : $LOW_SIZE_MB MB"
-          echo "🔹 Total HLS Size    : $TOTAL_MB MB"
-
