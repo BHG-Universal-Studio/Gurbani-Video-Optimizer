@@ -111,6 +111,7 @@ jobs:
       - name: Create branded MP4
         run: |
           echo "🎨 Creating branded MP4"
+          echo "Using input: $HLS_INPUT"
 
           mkdir -p output_mp4
 
