@@ -130,7 +130,11 @@ jobs:
               "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/hls/upload?key=hls/${BASE_KEY}/${REL}"
           done
 
-      # 🔥 Update Firestore (Node 20 SAFE)
+      - name: Install firebase-admin
+        run: |
+          npm init -y
+          npm install firebase-admin
+
       - name: Update Firestore
         env:
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
