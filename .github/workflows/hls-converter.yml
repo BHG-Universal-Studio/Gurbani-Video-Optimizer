@@ -135,45 +135,47 @@ jobs:
               "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/hls/upload?key=hls/${BASE_KEY}/${REL}"
           done
 
-      # 🔥 Update Firestore
-      - name: Update Firestore
-        env:
-          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
-          FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
-          FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
-        run: |
-          node <<'EOF'
-          const admin = require("firebase-admin");
+     # 🔥 Update Firestore (FIXED for Node 20)
+- name: Update Firestore
+  env:
+    FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+    FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
+    FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
+  run: |
+    node --input-type=module <<'EOF'
+    import admin from "firebase-admin";
 
-          admin.initializeApp({
-            credential: admin.credential.cert({
-              projectId: process.env.FIREBASE_PROJECT_ID,
-              clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-              privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-            }),
-          });
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+      }),
+    });
 
-          const db = admin.firestore();
-          const publicId = "${{ github.event.client_payload.original_key }}";
-          const baseKey = publicId.replace(/\//g, "_").replace(/\.[^.]+$/, "");
+    const db = admin.firestore();
 
-          const hlsUrl =
-            "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev?filename=hls/" +
-            baseKey + "/index.m3u8";
+    const publicId = "${{ github.event.client_payload.original_key }}";
+    const baseKey = publicId.replace(/\//g, "_").replace(/\.[^.]+$/, "");
 
-          for (const col of ["pending_posts", "posts"]) {
-            const snap = await db
-              .collection(col)
-              .where("publicId", "==", publicId)
-              .limit(1)
-              .get();
+    const hlsUrl =
+      "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev" +
+      "?filename=hls/" + baseKey + "/index.m3u8";
 
-            if (!snap.empty) {
-              await snap.docs[0].ref.update({
-                hlsUrl,
-                publicHlsId: "hls/" + baseKey,
-              });
-              break;
-            }
-          }
-          EOF
+    for (const col of ["pending_posts", "posts"]) {
+      const snap = await db
+        .collection(col)
+        .where("publicId", "==", publicId)
+        .limit(1)
+        .get();
+
+      if (!snap.empty) {
+        await snap.docs[0].ref.update({
+          hlsUrl,
+          publicHlsId: "hls/" + baseKey,
+        });
+        console.log(`✅ Firestore updated in ${col}`);
+        break;
+      }
+    }
+    EOF
