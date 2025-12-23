@@ -33,35 +33,63 @@ jobs:
           echo "Downloaded file:"
           ls -lh input_video
 
-  
+      # 🎥 STEP 1 + 2 + 3: Smart compress → compare → HLS
       - name: Convert to HLS (Feed Optimized – FINAL)
         run: |
-         mkdir -p output_hls
+          set -e
+          mkdir -p output_hls
 
-         ffmpeg -y -i input_video \
-         -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)':flags=lanczos,format=yuv420p,fps=30" \
-         -r 30 \
-         -c:v libx264 \
-         -profile:v baseline \
-         -level 3.0 \
-         -preset veryfast \
-         -crf 23 \
-         -g 180 \
-         -keyint_min 180 \
-         -sc_threshold 0 \
-         -c:a aac \
-         -b:a 128k \
-         -ar 48000 \
-         -hls_time 6 \
-         -hls_playlist_type vod \
-         -hls_list_size 0 \
-         -hls_segment_filename "output_hls/index%03d.ts" \
-         output_hls/index.m3u8
+          echo "🔹 Step 1: Create compression candidate"
+          ffmpeg -y -i input_video \
+            -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)':flags=lanczos,format=yuv420p,fps=30" \
+            -r 30 \
+            -c:v libx264 \
+            -profile:v baseline \
+            -level 3.0 \
+            -preset veryfast \
+            -crf 23 \
+            -c:a aac \
+            -b:a 128k \
+            -ar 48000 \
+            compressed.mp4
 
+          echo "🔹 Step 2: Compare sizes"
+          ORIGINAL_SIZE=$(stat -c%s input_video)
+          COMPRESSED_SIZE=$(stat -c%s compressed.mp4)
 
+          echo "Original size:   $ORIGINAL_SIZE bytes"
+          echo "Compressed size: $COMPRESSED_SIZE bytes"
 
+          if [ "$COMPRESSED_SIZE" -lt "$ORIGINAL_SIZE" ]; then
+            echo "✅ Using compressed.mp4"
+            HLS_INPUT="compressed.mp4"
+          else
+            echo "✅ Using original input_video"
+            HLS_INPUT="input_video"
+          fi
 
-      # 🔗 Rewrite HLS playlist to ABSOLUTE URLs (🔥 REQUIRED)
+          echo "🔹 Step 3: Generate HLS from selected input"
+          ffmpeg -y -i "$HLS_INPUT" \
+            -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)':flags=lanczos,format=yuv420p,fps=30" \
+            -r 30 \
+            -c:v libx264 \
+            -profile:v baseline \
+            -level 3.0 \
+            -preset veryfast \
+            -crf 23 \
+            -g 180 \
+            -keyint_min 180 \
+            -sc_threshold 0 \
+            -c:a aac \
+            -b:a 128k \
+            -ar 48000 \
+            -hls_time 6 \
+            -hls_playlist_type vod \
+            -hls_list_size 0 \
+            -hls_segment_filename "output_hls/index%03d.ts" \
+            output_hls/index.m3u8
+
+      # 🔗 Rewrite HLS playlist to ABSOLUTE URLs
       - name: Rewrite HLS playlist to absolute URLs
         run: |
           BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" \
@@ -98,15 +126,12 @@ jobs:
               "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/hls/upload?key=hls/${BASE_KEY}/${NAME}"
           done
 
-
-
+      # 🔥 Firestore update
       - name: Install firebase-admin
         run: |
           npm init -y
           npm install firebase-admin
 
-          
-   
       - name: Update Firestore with HLS URL
         env:
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
@@ -145,7 +170,6 @@ jobs:
                   hlsUrl,
                   publicHlsId: "hls/" + baseKey,
                 });
-
                 console.log(`Firestore updated in ${col}`);
                 return;
               }
