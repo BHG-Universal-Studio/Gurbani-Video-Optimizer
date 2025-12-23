@@ -120,7 +120,7 @@ jobs:
             -i logo.png \
             -filter_complex "\
               [1:v]scale=iw*0.25:-1[logo]; \
-              [0:v][logo]overlay=(main_w-overlay_w)/2:main_h-overlay_h-54 \
+              [0:v][logo]overlay=(main_w-overlay_w)/2:main_h-overlay_h-(main_h*0.08) \
             " \
             -c:v libx264 \
             -preset veryfast \
