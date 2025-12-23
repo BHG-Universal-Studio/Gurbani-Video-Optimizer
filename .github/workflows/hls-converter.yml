@@ -61,12 +61,13 @@ jobs:
           echo "Compressed size: $COMPRESSED_SIZE bytes"
 
           if [ "$COMPRESSED_SIZE" -lt "$ORIGINAL_SIZE" ]; then
-            echo "✅ Using compressed.mp4"
-            HLS_INPUT="compressed.mp4"
+          echo "✅ Using compressed.mp4"
+          echo "HLS_INPUT=compressed.mp4" >> $GITHUB_ENV
           else
-            echo "✅ Using original input_video"
-            HLS_INPUT="input_video"
+          echo "✅ Using original input_video"
+          echo "HLS_INPUT=input_video" >> $GITHUB_ENV
           fi
+
 
           echo "🔹 Step 3: Generate HLS from selected input"
           ffmpeg -y -i "$HLS_INPUT" \
@@ -103,6 +104,34 @@ jobs:
           echo "Final playlist:"
           cat output_hls/index.m3u8
 
+      # 🎨 Create branded MP4 with logo (center-bottom)
+      - name: Create branded MP4
+        run: |
+          echo "🎨 Creating branded MP4"
+
+          mkdir -p output_mp4
+
+          ffmpeg -y \
+            -i "$HLS_INPUT" \
+            -i logo.png \
+            -filter_complex "\
+              [1:v]scale=iw*0.25:-1[logo]; \
+              [0:v][logo]overlay=(main_w-overlay_w)/2:main_h-overlay_h-24 \
+            " \
+            -c:v libx264 \
+            -preset veryfast \
+            -crf 23 \
+            -pix_fmt yuv420p \
+            -c:a aac \
+            -b:a 128k \
+            -movflags +faststart \
+            output_mp4/branded.mp4
+
+          ls -lh output_mp4/branded.mp4
+
+
+
+
       # 📂 Debug
       - name: List HLS output
         run: ls -lh output_hls
@@ -125,6 +154,24 @@ jobs:
               --data-binary @"$file" \
               "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/hls/upload?key=hls/${BASE_KEY}/${NAME}"
           done
+
+
+      # ☁️ Upload branded MP4 to Cloudflare R2
+      - name: Upload branded MP4
+        env:
+          HLS_SECRET: ${{ secrets.HLS_UPLOAD_SECRET }}
+        run: |
+          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" \
+            | sed 's|/|_|g' \
+            | sed 's|\.[^.]*$||')
+
+          curl -X POST \
+            -H "X-HLS-Secret: $HLS_SECRET" \
+            -H "Content-Type: video/mp4" \
+            --data-binary @"output_mp4/branded.mp4" \
+            "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/hls/upload?key=hls/${BASE_KEY}/branded/branded.mp4"
+
+
 
       # 🔥 Firestore update
       - name: Install firebase-admin
@@ -157,6 +204,11 @@ jobs:
             "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev" +
             "?filename=hls/" + baseKey + "/index.m3u8";
 
+          const brandedVideo =
+            "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev" +
+            "?filename=hls/" + baseKey + "/branded/branded.mp4";
+
+
           async function updateFirestore() {
             for (const col of ["pending_posts", "posts"]) {
               const snap = await db
@@ -166,10 +218,12 @@ jobs:
                 .get();
 
               if (!snap.empty) {
-                await snap.docs[0].ref.update({
-                  hlsUrl,
-                  publicHlsId: "hls/" + baseKey,
-                });
+               await snap.docs[0].ref.update({
+               hlsUrl,
+               publicHlsId: "hls/" + baseKey,
+               brandedVideo,
+               });
+
                 console.log(`Firestore updated in ${col}`);
                 return;
               }
