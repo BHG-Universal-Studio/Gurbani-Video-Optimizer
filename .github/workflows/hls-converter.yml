@@ -34,7 +34,7 @@ jobs:
           set -e
           mkdir -p output_hls/videohigh output_hls/videolow
 
-          echo "🔹 Step 1: Compress candidate (FIXED)"
+          echo "🔹 Step 1: Compress candidate"
           ffmpeg -y -i input_video \
             -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)',fps=30,format=yuv420p" \
             -c:v libx264 \
@@ -48,8 +48,8 @@ jobs:
           ORIGINAL_SIZE=$(stat -c%s input_video)
           COMPRESSED_SIZE=$(stat -c%s compressed.mp4)
 
-          echo "Original size:   $ORIGINAL_SIZE bytes"
-          echo "Compressed size: $COMPRESSED_SIZE bytes"
+          echo "Original:   $ORIGINAL_SIZE bytes"
+          echo "Compressed: $COMPRESSED_SIZE bytes"
 
           if [ "$COMPRESSED_SIZE" -lt "$ORIGINAL_SIZE" ]; then
             echo "✅ Using compressed.mp4"
@@ -59,7 +59,7 @@ jobs:
             HLS_INPUT="input_video"
           fi
 
-          echo "🔹 Step 3a: High quality HLS (1080p max) — FIXED"
+          echo "🔹 Step 3a: High quality HLS (1080p max)"
           ffmpeg -y -i "$HLS_INPUT" \
             -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)',fps=30,format=yuv420p" \
             -c:v libx264 \
@@ -76,7 +76,7 @@ jobs:
             -hls_segment_filename "output_hls/videohigh/index%03d.ts" \
             output_hls/videohigh/index.m3u8
 
-          echo "🔹 Step 3b: Low quality HLS (480p) — FIXED"
+          echo "🔹 Step 3b: Low quality HLS (480p)"
           ffmpeg -y -i "$HLS_INPUT" \
             -vf "scale='if(gt(iw,ih),854,-2)':'if(gt(ih,iw),480,-2)',fps=30,format=yuv420p" \
             -c:v libx264 \
@@ -108,10 +108,7 @@ jobs:
       # 🔗 Rewrite playlists to absolute URLs
       - name: Rewrite playlists to absolute URLs
         run: |
-          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" \
-            | sed 's|/|_|g' \
-            | sed 's|\.[^.]*$||')
-
+          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" | sed 's|/|_|g' | sed 's|\.[^.]*$||')
           BASE_URL="https://gurbani-kirtan-darbar.iemgurpreets.workers.dev?filename=hls/${BASE_KEY}"
 
           find output_hls -name "*.m3u8" -exec \
@@ -122,9 +119,7 @@ jobs:
         env:
           HLS_SECRET: ${{ secrets.HLS_UPLOAD_SECRET }}
         run: |
-          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" \
-            | sed 's|/|_|g' \
-            | sed 's|\.[^.]*$||')
+          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" | sed 's|/|_|g' | sed 's|\.[^.]*$||')
 
           find output_hls -type f | while read file; do
             REL=${file#output_hls/}
@@ -135,47 +130,47 @@ jobs:
               "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/hls/upload?key=hls/${BASE_KEY}/${REL}"
           done
 
-     # 🔥 Update Firestore (FIXED for Node 20)
-- name: Update Firestore
-  env:
-    FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
-    FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
-    FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
-  run: |
-    node --input-type=module <<'EOF'
-    import admin from "firebase-admin";
+      # 🔥 Update Firestore (Node 20 SAFE)
+      - name: Update Firestore
+        env:
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
+          FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
+        run: |
+          node --input-type=module <<'EOF'
+          import admin from "firebase-admin";
 
-    admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-      }),
-    });
+          admin.initializeApp({
+            credential: admin.credential.cert({
+              projectId: process.env.FIREBASE_PROJECT_ID,
+              clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+              privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+            }),
+          });
 
-    const db = admin.firestore();
+          const db = admin.firestore();
 
-    const publicId = "${{ github.event.client_payload.original_key }}";
-    const baseKey = publicId.replace(/\//g, "_").replace(/\.[^.]+$/, "");
+          const publicId = "${{ github.event.client_payload.original_key }}";
+          const baseKey = publicId.replace(/\//g, "_").replace(/\.[^.]+$/, "");
 
-    const hlsUrl =
-      "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev" +
-      "?filename=hls/" + baseKey + "/index.m3u8";
+          const hlsUrl =
+            "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev" +
+            "?filename=hls/" + baseKey + "/index.m3u8";
 
-    for (const col of ["pending_posts", "posts"]) {
-      const snap = await db
-        .collection(col)
-        .where("publicId", "==", publicId)
-        .limit(1)
-        .get();
+          for (const col of ["pending_posts", "posts"]) {
+            const snap = await db
+              .collection(col)
+              .where("publicId", "==", publicId)
+              .limit(1)
+              .get();
 
-      if (!snap.empty) {
-        await snap.docs[0].ref.update({
-          hlsUrl,
-          publicHlsId: "hls/" + baseKey,
-        });
-        console.log(`✅ Firestore updated in ${col}`);
-        break;
-      }
-    }
-    EOF
+            if (!snap.empty) {
+              await snap.docs[0].ref.update({
+                hlsUrl,
+                publicHlsId: "hls/" + baseKey,
+              });
+              console.log(`✅ Firestore updated in ${col}`);
+              break;
+            }
+          }
+          EOF
