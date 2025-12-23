@@ -174,3 +174,20 @@ jobs:
             }
           }
           EOF
+
+
+      - name: Debug HLS sizes
+        run: |
+          echo "📦 HLS Size Summary"
+
+          HIGH_SIZE_BYTES=$(du -cb output_hls/videohigh/* | tail -1 | cut -f1)
+          LOW_SIZE_BYTES=$(du -cb output_hls/videolow/* | tail -1 | cut -f1)
+
+          HIGH_SIZE_MB=$(awk "BEGIN {printf \"%.2f\", $HIGH_SIZE_BYTES/1024/1024}")
+          LOW_SIZE_MB=$(awk "BEGIN {printf \"%.2f\", $LOW_SIZE_BYTES/1024/1024}")
+          TOTAL_MB=$(awk "BEGIN {printf \"%.2f\", ($HIGH_SIZE_BYTES+$LOW_SIZE_BYTES)/1024/1024}")
+
+          echo "🔹 High Quality HLS  : $HIGH_SIZE_MB MB"
+          echo "🔹 Low Quality HLS   : $LOW_SIZE_MB MB"
+          echo "🔹 Total HLS Size    : $TOTAL_MB MB"
+
