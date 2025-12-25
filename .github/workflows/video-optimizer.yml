@@ -96,12 +96,12 @@ jobs:
       # ☁️ Upload FINAL MP4 (stream)
       - name: Upload final MP4
         env:
-          HLS_SECRET: ${{ secrets.HLS_UPLOAD_SECRET }}
+          MP4_SECRET: ${{ secrets.UPLOAD_SECRET }}
         run: |
           BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" | sed 's|/|_|g' | sed 's|\.[^.]*$||')
 
           curl -X POST \
-            -H "X-HLS-Secret: $HLS_SECRET" \
+            -H "X-MP4-Secret: $MP4_SECRET" \
             -H "Content-Type: video/mp4" \
             --data-binary @"output_mp4/final.mp4" \
             "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/upload?key=Stream/user/${BASE_KEY}.mp4"
@@ -109,12 +109,12 @@ jobs:
       # ☁️ Upload BRANDED MP4 (download)
       - name: Upload branded MP4
         env:
-          HLS_SECRET: ${{ secrets.HLS_UPLOAD_SECRET }}
+          MP4_SECRET: ${{ secrets.UPLOAD_SECRET }}
         run: |
           BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" | sed 's|/|_|g' | sed 's|\.[^.]*$||')
 
           curl -X POST \
-            -H "X-HLS-Secret: $HLS_SECRET" \
+            -H "X-MP4-Secret: $MP4_SECRET" \
             -H "Content-Type: video/mp4" \
             --data-binary @"output_mp4/branded.mp4" \
             "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/upload?key=Stream/download/${BASE_KEY}.mp4"
