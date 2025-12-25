@@ -1,0 +1,54 @@
+name: Delete HLS Folder (Safe Batch)
+
+on:
+  repository_dispatch:
+    types: [delete_hls]
+
+jobs:
+  delete-hls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 🧾 Print payload
+        run: |
+          echo "HLS Prefix: ${{ github.event.client_payload.prefix }}"
+          echo "Estimated Files: ${{ github.event.client_payload.count }}"
+
+      - name: 🗑️ Delete HLS in batches via Worker
+        env:
+          WORKER_URL: ${{ secrets.GURBANI_WORKER_URL }}
+          ADMIN_SECRET: ${{ secrets.HLS_DELETE_ADMIN_SECRET }}
+          PREFIX: ${{ github.event.client_payload.prefix }}
+        run: |
+          echo "Starting HLS delete for prefix: $PREFIX"
+
+          HAS_MORE=true
+          TOTAL_DELETED=0
+
+          while [ "$HAS_MORE" = true ]; do
+            RESPONSE=$(curl -s -X POST "$WORKER_URL/delete/hls/batch" \
+              -H "Content-Type: application/json" \
+              -H "X-Admin-Secret: $ADMIN_SECRET" \
+              -d "{
+                \"prefix\": \"$PREFIX\",
+                \"limit\": 10
+              }")
+
+            echo "Response: $RESPONSE"
+
+            DELETED=$(echo "$RESPONSE" | jq -r '.deleted')
+            HAS_MORE=$(echo "$RESPONSE" | jq -r '.hasMore')
+
+            TOTAL_DELETED=$((TOTAL_DELETED + DELETED))
+
+            if [ "$DELETED" -eq 0 ]; then
+              echo "No more files to delete."
+              break
+            fi
+
+            echo "Deleted $DELETED files, total so far: $TOTAL_DELETED"
+            sleep 1
+          done
+
+          echo "✅ HLS deletion completed. Total deleted: $TOTAL_DELETED"
