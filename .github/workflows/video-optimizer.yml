@@ -119,6 +119,12 @@ jobs:
             --data-binary @"output_mp4/branded.mp4" \
             "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/mp4/upload?key=Stream/download/${BASE_KEY}.mp4"
 
+       # 📦 Install firebase-admin
+      - name: Install firebase-admin
+        run: |
+          npm init -y
+          npm install firebase-admin
+
       # 🔥 Firestore update
       - name: Update Firestore
         env:
