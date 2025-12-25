@@ -104,7 +104,7 @@ jobs:
             -H "X-MP4-Secret: $MP4_SECRET" \
             -H "Content-Type: video/mp4" \
             --data-binary @"output_mp4/final.mp4" \
-            "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/upload?key=Stream/user/${BASE_KEY}.mp4"
+            "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/mp4/upload?key=Stream/user/${BASE_KEY}.mp4"
 
       # ☁️ Upload BRANDED MP4 (download)
       - name: Upload branded MP4
@@ -117,7 +117,7 @@ jobs:
             -H "X-MP4-Secret: $MP4_SECRET" \
             -H "Content-Type: video/mp4" \
             --data-binary @"output_mp4/branded.mp4" \
-            "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/upload?key=Stream/download/${BASE_KEY}.mp4"
+            "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/mp4/upload?key=Stream/download/${BASE_KEY}.mp4"
 
       # 🔥 Firestore update
       - name: Update Firestore
