@@ -2,7 +2,7 @@ name: Video Optimizer Gurbani Kirtan Darbar
 
 on:
   repository_dispatch:
-    types: [convert_hls]
+    types: [compress_mp4]
 
 jobs:
   convert:
