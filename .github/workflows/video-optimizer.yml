@@ -153,12 +153,14 @@ jobs:
            const fileName = "Videos_" + baseKey + ".mp4";
 
 
-          const streamUrl =
-            "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev?filename=Stream/user/" + baseKey + ".mp4";
+           const streamUrl =
+           "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev" +
+           "?filename=Stream/user/" + fileName;
 
-          const brandedUrl =
-            "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev?filename=Stream/download/" + baseKey + ".mp4";
-
+           const brandedUrl =
+           "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev" +
+           "?filename=Stream/download/" + fileName;
+  
           async function updateFirestore() {
             for (const col of ["pending_posts", "posts"]) {
               const snap = await db.collection(col).where("publicId", "==", publicId).limit(1).get();
