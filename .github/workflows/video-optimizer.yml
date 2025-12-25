@@ -146,7 +146,12 @@ jobs:
           const db = admin.firestore();
           const publicId = "${{ github.event.client_payload.original_key }}";
 
-          const baseKey = publicId.replace(/^Videos\//, "").replace(/\.[^.]+$/, "");
+          const baseKey = publicId
+          .replace(/^Videos\//, "")   // remove folder
+          .replace(/\.[^.]+$/, "");   // remove extension
+
+           const fileName = "Videos_" + baseKey + ".mp4";
+
 
           const streamUrl =
             "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev?filename=Stream/user/" + baseKey + ".mp4";
