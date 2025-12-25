@@ -19,10 +19,12 @@ jobs:
           echo "HLS Prefix: $PREFIX"
           echo "Estimated Files: $ESTIMATED"
 
-      - name: Install AWS CLI
+      - name: Install AWS CLI v2 (official)
         run: |
-          sudo apt update
-          sudo apt install -y awscli
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          sudo ./aws/install
+          aws --version
 
       - name: Configure R2 credentials
         run: |
