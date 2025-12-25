@@ -1,8 +1,8 @@
-name: Video Optimizer Gurbani Kirtan Darbar
+name: HLS Conversion Gurbani Kirtan Darbar
 
 on:
   repository_dispatch:
-    types: [compress_mp4]
+    types: [convert_hls]
 
 jobs:
   convert:
@@ -22,21 +22,27 @@ jobs:
       - name: Verify FFmpeg
         run: ffmpeg -version
 
-      # ⬇️ Download source video
+      # ⬇️ Download source video from Cloudflare Worker
       - name: Download source video
         run: |
-          echo "Downloading video:"
+          echo "Downloading video from:"
           echo "${{ github.event.client_payload.video_url }}"
+
           curl -L "${{ github.event.client_payload.video_url }}" -o input_video
+
+          echo "Downloaded file:"
           ls -lh input_video
 
-      # 🎥 Step 1: Compress + Compare
-      - name: Smart compress and choose smaller file
+      # 🎥 STEP 1 + 2 + 3: Smart compress → compare → HLS
+      - name: Convert to HLS (Feed Optimized – FINAL)
         run: |
           set -e
+          mkdir -p output_hls
 
+          echo "🔹 Step 1: Create compression candidate"
           ffmpeg -y -i input_video \
-            -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)',format=yuv420p,fps=30" \
+            -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)':flags=lanczos,format=yuv420p,fps=30" \
+            -r 30 \
             -c:v libx264 \
             -profile:v baseline \
             -level 3.0 \
@@ -47,38 +53,70 @@ jobs:
             -ar 48000 \
             compressed.mp4
 
+          echo "🔹 Step 2: Compare sizes"
           ORIGINAL_SIZE=$(stat -c%s input_video)
           COMPRESSED_SIZE=$(stat -c%s compressed.mp4)
 
+          echo "Original size:   $ORIGINAL_SIZE bytes"
+          echo "Compressed size: $COMPRESSED_SIZE bytes"
+
           if [ "$COMPRESSED_SIZE" -lt "$ORIGINAL_SIZE" ]; then
-            echo "SELECTED_INPUT=compressed.mp4" >> $GITHUB_ENV
+          echo "✅ Using compressed.mp4"
+          SELECTED_INPUT="compressed.mp4"
+          echo "HLS_INPUT=compressed.mp4" >> $GITHUB_ENV
           else
-            echo "SELECTED_INPUT=input_video" >> $GITHUB_ENV
+          echo "✅ Using original input_video"
+          SELECTED_INPUT="input_video"
+          echo "HLS_INPUT=input_video" >> $GITHUB_ENV
           fi
 
-      # 🎬 Step 2: Create FINAL stream MP4 (no logo)
-      - name: Create final MP4 (streaming)
-        run: |
-          mkdir -p output_mp4
 
+
+          echo "🔹 Step 3: Generate HLS from selected input"
           ffmpeg -y -i "$SELECTED_INPUT" \
-            -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)',format=yuv420p,fps=30" \
+            -vf "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)':flags=lanczos,format=yuv420p,fps=30" \
+            -r 30 \
             -c:v libx264 \
             -profile:v baseline \
             -level 3.0 \
             -preset veryfast \
             -crf 23 \
-            -pix_fmt yuv420p \
+            -g 180 \
+            -keyint_min 180 \
+            -sc_threshold 0 \
             -c:a aac \
             -b:a 128k \
-            -movflags +faststart \
-            output_mp4/final.mp4
+            -ar 48000 \
+            -hls_time 6 \
+            -hls_playlist_type vod \
+            -hls_list_size 0 \
+            -hls_segment_filename "output_hls/index%03d.ts" \
+            output_hls/index.m3u8
 
-      # 🎨 Step 3: Create branded MP4
+      # 🔗 Rewrite HLS playlist to ABSOLUTE URLs
+      - name: Rewrite HLS playlist to absolute URLs
+        run: |
+          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" \
+            | sed 's|/|_|g' \
+            | sed 's|\.[^.]*$||')
+
+          BASE_URL="https://gurbani-kirtan-darbar.iemgurpreets.workers.dev?filename=hls/${BASE_KEY}"
+
+          sed -i "s|index|$BASE_URL/index|g" output_hls/index.m3u8
+
+          echo "Final playlist:"
+          cat output_hls/index.m3u8
+
+      # 🎨 Create branded MP4 with logo (center-bottom)
       - name: Create branded MP4
         run: |
+          echo "🎨 Creating branded MP4"
+          echo "Using input: $HLS_INPUT"
+
+          mkdir -p output_mp4
+
           ffmpeg -y \
-            -i output_mp4/final.mp4 \
+            -i "$HLS_INPUT" \
             -i logo.png \
             -filter_complex "\
               [1:v]scale=iw*0.25:-1[logo]; \
@@ -93,40 +131,59 @@ jobs:
             -movflags +faststart \
             output_mp4/branded.mp4
 
-      # ☁️ Upload FINAL MP4 (stream)
-      - name: Upload final MP4
+          ls -lh output_mp4/branded.mp4
+
+
+
+
+      # 📂 Debug
+      - name: List HLS output
+        run: ls -lh output_hls
+
+      # ☁️ Upload HLS files to Cloudflare R2 via Worker
+      - name: Upload HLS to Cloudflare via Worker
         env:
-          MP4_SECRET: ${{ secrets.UPLOAD_SECRET }}
+          HLS_SECRET: ${{ secrets.HLS_UPLOAD_SECRET }}
         run: |
-          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" | sed 's|/|_|g' | sed 's|\.[^.]*$||')
+          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" \
+            | sed 's|/|_|g' \
+            | sed 's|\.[^.]*$||')
 
-          curl -X POST \
-            -H "X-MP4-Secret: $MP4_SECRET" \
-            -H "Content-Type: video/mp4" \
-            --data-binary @"output_mp4/final.mp4" \
-            "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/mp4/upload?key=Stream/user/${BASE_KEY}.mp4"
+          for file in output_hls/*; do
+            NAME=$(basename "$file")
 
-      # ☁️ Upload BRANDED MP4 (download)
+            curl -X POST \
+              -H "X-HLS-Secret: $HLS_SECRET" \
+              -H "Content-Type: $(file --mime-type -b "$file")" \
+              --data-binary @"$file" \
+              "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/hls/upload?key=hls/${BASE_KEY}/${NAME}"
+          done
+
+
+      # ☁️ Upload branded MP4 to Cloudflare R2
       - name: Upload branded MP4
         env:
-          MP4_SECRET: ${{ secrets.UPLOAD_SECRET }}
+          HLS_SECRET: ${{ secrets.HLS_UPLOAD_SECRET }}
         run: |
-          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" | sed 's|/|_|g' | sed 's|\.[^.]*$||')
+          BASE_KEY=$(echo "${{ github.event.client_payload.original_key }}" \
+            | sed 's|/|_|g' \
+            | sed 's|\.[^.]*$||')
 
           curl -X POST \
-            -H "X-MP4-Secret: $MP4_SECRET" \
+            -H "X-HLS-Secret: $HLS_SECRET" \
             -H "Content-Type: video/mp4" \
             --data-binary @"output_mp4/branded.mp4" \
-            "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/mp4/upload?key=Stream/download/${BASE_KEY}.mp4"
+            "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev/hls/upload?key=hls/${BASE_KEY}/branded/branded.mp4"
 
-       # 📦 Install firebase-admin
+
+
+      # 🔥 Firestore update
       - name: Install firebase-admin
         run: |
           npm init -y
           npm install firebase-admin
 
-      # 🔥 Firestore update
-      - name: Update Firestore
+      - name: Update Firestore with HLS URL
         env:
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
@@ -144,36 +201,38 @@ jobs:
           });
 
           const db = admin.firestore();
+
           const publicId = "${{ github.event.client_payload.original_key }}";
+          const baseKey = publicId.replace(/\//g, "_").replace(/\.[^.]+$/, "");
+          const hlsUrl =
+            "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev" +
+            "?filename=hls/" + baseKey + "/index.m3u8";
 
-          const baseKey = publicId
-          .replace(/^Videos\//, "")   // remove folder
-          .replace(/\.[^.]+$/, "");   // remove extension
-
-           const fileName = "Videos_" + baseKey + ".mp4";
+          const brandedVideo =
+            "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev" +
+            "?filename=hls/" + baseKey + "/branded/branded.mp4";
 
 
-           const streamUrl =
-           "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev" +
-           "?filename=Stream/user/" + fileName;
-
-           const brandedUrl =
-           "https://gurbani-kirtan-darbar.iemgurpreets.workers.dev" +
-           "?filename=Stream/download/" + fileName;
-  
           async function updateFirestore() {
             for (const col of ["pending_posts", "posts"]) {
-              const snap = await db.collection(col).where("publicId", "==", publicId).limit(1).get();
+              const snap = await db
+                .collection(col)
+                .where("publicId", "==", publicId)
+                .limit(1)
+                .get();
+
               if (!snap.empty) {
-                await snap.docs[0].ref.update({
-                  imageUrl: streamUrl,
-                  brandedVideo: brandedUrl,
-                  mediaType: "Video",
-                  publicId
-                });
+               await snap.docs[0].ref.update({
+               hlsUrl,
+               publicHlsId: "hls/" + baseKey,
+               brandedVideo,
+               });
+
+                console.log(`Firestore updated in ${col}`);
                 return;
               }
             }
+            console.log("No matching document found");
           }
 
           updateFirestore();
