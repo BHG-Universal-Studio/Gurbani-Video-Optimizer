@@ -214,7 +214,7 @@ jobs:
 
 
           async function updateFirestore() {
-            for (const col of ["pending_posts", "posts"]) {
+            for (const col of ["pending_posts", "posts", "rejectedPosts"]) {
               const snap = await db
                 .collection(col)
                 .where("publicId", "==", publicId)
