@@ -73,7 +73,7 @@ jobs:
           ffmpeg -y -i "$HLS_INPUT" -i logo.png \
             -filter_complex "\
               [0:v]scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(ih,iw),min(1080,ih),-2)'[v]; \
-              [1:v]scale=iw*0.12:-1[logo]; \
+              [1:v]scale=iw*0.18:-1[logo]; \
               [v][logo]overlay=x=W-w-(W*0.03):y=H*0.03 \
             " \
             -c:v libx264 -preset veryfast -crf 23 \
